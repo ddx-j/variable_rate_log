@@ -1,11 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Variable Rate Log</title>
-</head>
-<body>
 <div id="root"></div>
 <style>
   :root {
@@ -43,15 +35,17 @@
     border-radius: 2px 2px 0 0;
   }
   .slate h1 {
-    font-family: var(--mono);
-    font-size: 20px;
-    letter-spacing: 1px;
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 0;
     margin: 0 0 4px;
-    text-transform: uppercase;
   }
   .slate h1::before {
     content: '$ ';
     color: var(--tape);
+    font-family: var(--mono);
+    font-size: 18px;
   }
   .slate p {
     font-family: var(--mono);
@@ -564,9 +558,27 @@ function fmtFilenameDate(dateStr) {
 }
 
 function App() {
-  const [projectTitle, setProjectTitle] = useState('');
-  const [projectDate, setProjectDate] = useState(todayStr());
-  const [billedTo, setBilledTo] = useState('');
+  const [projectTitle, setProjectTitle] = useState(() => {
+    try {
+      return localStorage.getItem('vrlProjectTitle') || '';
+    } catch (e) {
+      return '';
+    }
+  });
+  const [projectDate, setProjectDate] = useState(() => {
+    try {
+      return localStorage.getItem('vrlProjectDate') || todayStr();
+    } catch (e) {
+      return todayStr();
+    }
+  });
+  const [billedTo, setBilledTo] = useState(() => {
+    try {
+      return localStorage.getItem('vrlBilledTo') || '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [invoiceNumber, setInvoiceNumber] = useState(() => {
     try {
       const stored = localStorage.getItem('shootTrackerNextInvoiceNumber');
@@ -584,14 +596,33 @@ function App() {
     }
   });
   const [showHistory, setShowHistory] = useState(false);
-  const [defaultRate, setDefaultRate] = useState(50);
-  const [sessions, setSessions] = useState([
-    { id: 1, label: 'Shoot', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50 },
-    { id: 2, label: 'Edit — session 1', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50 },
-  ]);
+  const [defaultRate, setDefaultRate] = useState(() => {
+    try {
+      const stored = localStorage.getItem('vrlDefaultRate');
+      return stored ? Number(stored) : 50;
+    } catch (e) {
+      return 50;
+    }
+  });
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const stored = localStorage.getItem('vrlSessions');
+      return stored ? JSON.parse(stored) : [
+        { id: 1, label: 'Shoot', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50 },
+        { id: 2, label: 'Edit — session 1', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50 },
+      ];
+    } catch (e) {
+      return [
+        { id: 1, label: 'Shoot', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50 },
+        { id: 2, label: 'Edit — session 1', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50 },
+      ];
+    }
+  });
   const [nextId, setNextId] = useState(3);
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
 
   const anyRunning = sessions.some(s => s.runningSince);
 
@@ -600,6 +631,19 @@ function App() {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [anyRunning]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('vrlProjectTitle', projectTitle);
+      localStorage.setItem('vrlProjectDate', projectDate);
+      localStorage.setItem('vrlBilledTo', billedTo);
+      localStorage.setItem('vrlInvoiceNumber', String(invoiceNumber));
+      localStorage.setItem('vrlDefaultRate', String(defaultRate));
+      localStorage.setItem('vrlSessions', JSON.stringify(sessions));
+    } catch (e) {
+      // localStorage may be unavailable
+    }
+  }, [projectTitle, projectDate, billedTo, invoiceNumber, defaultRate, sessions]);
 
   const handlePunch = (id) => {
     setSessions(prev => prev.map(s => {
@@ -648,6 +692,55 @@ function App() {
 
   const removeSession = (id) => {
     setSessions(prev => prev.filter(s => s.id !== id));
+  };
+
+  const importSession = () => {
+    // Parse lines like:
+    // Label: Session Name
+    // Date: 2026-10-15
+    // Start: 14:30
+    // End: 17:45
+    // Rate: 50
+    // Notes: Optional notes here
+    if (!importText.trim()) return;
+    
+    const newSession = {
+      id: nextId,
+      label: 'Imported Session',
+      start: '',
+      end: '',
+      date: todayStr(),
+      notes: '',
+      onBreak: false,
+      breakStart: null,
+      breakMs: 0,
+      rate: defaultRate,
+      runningSince: null
+    };
+
+    const lines = importText.split('\n');
+    lines.forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('Label:') || trimmed.startsWith('Session:')) {
+        newSession.label = trimmed.split(':').slice(1).join(':').trim();
+      } else if (trimmed.startsWith('Date:')) {
+        newSession.date = trimmed.split(':').slice(1).join(':').trim();
+      } else if (trimmed.startsWith('Start:')) {
+        newSession.start = trimmed.split(':').slice(1).join(':').trim();
+      } else if (trimmed.startsWith('End:')) {
+        newSession.end = trimmed.split(':').slice(1).join(':').trim();
+      } else if (trimmed.startsWith('Rate:') || trimmed.startsWith('$/hr:') || trimmed.startsWith('Rate /hr:')) {
+        const rateStr = trimmed.split(':').slice(1).join(':').trim().replace('$', '').replace('/hr', '').trim();
+        newSession.rate = Number(rateStr) || defaultRate;
+      } else if (trimmed.startsWith('Notes:')) {
+        newSession.notes = trimmed.split(':').slice(1).join(':').trim();
+      }
+    });
+
+    setSessions(prev => [...prev, newSession]);
+    setNextId(n => n + 1);
+    setImportText('');
+    setShowImport(false);
   };
 
   const computed = useMemo(() => {
@@ -806,7 +899,9 @@ function App() {
     const rightX = doc.internal.pageSize.getWidth() - margin;
     doc.text(`Invoice #: ${invoiceNumber}`, rightX, 30, { align: 'right' });
     doc.text(`Date: ${projectDate || todayStr()}`, rightX, 43, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
     doc.text(`Project: ${projectTitle || 'Untitled Project'}`, rightX, 56, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
@@ -1018,7 +1113,94 @@ function App() {
         </div>
       ))}
 
-      <button className="add-btn" onClick={addSession}>+ add another session</button>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '22px' }}>
+        <button className="add-btn" onClick={addSession} style={{ flex: 1, margin: 0 }}>+ add another session</button>
+        <button className="add-btn" onClick={() => setShowImport(true)} style={{ flex: 1, margin: 0 }}>📥 import time card</button>
+      </div>
+
+      {showImport && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: '8px',
+            padding: '24px',
+            maxWidth: '500px',
+            width: '100%',
+            border: `2px solid var(--tape)`,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+          }}>
+            <h2 style={{ margin: '0 0 12px', fontFamily: 'var(--mono)', fontSize: '16px', color: 'var(--ink)' }}>Import Time Card</h2>
+            <p style={{ margin: '0 0 12px', fontFamily: 'var(--mono)', fontSize: '12px', color: '#6b655a' }}>
+              Paste session data below. Format:<br/>
+              Label: Shoot Footage<br/>
+              Date: 2026-10-15<br/>
+              Start: 14:30<br/>
+              End: 17:45<br/>
+              Rate: 50<br/>
+              Notes: Optional notes
+            </p>
+            <textarea
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+              style={{
+                width: '100%',
+                height: '200px',
+                fontFamily: 'var(--mono)',
+                fontSize: '12px',
+                padding: '10px',
+                border: `1px solid var(--line)`,
+                borderRadius: '4px',
+                boxSizing: 'border-box',
+                marginBottom: '12px',
+                resize: 'none'
+              }}
+              placeholder="Paste your time card data here..."
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowImport(false); setImportText(''); }}
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontSize: '13px',
+                  padding: '10px 16px',
+                  border: `1px solid var(--line)`,
+                  borderRadius: '4px',
+                  background: '#fff',
+                  color: 'var(--ink)',
+                  cursor: 'pointer'
+                }}
+              >
+                cancel
+              </button>
+              <button
+                onClick={importSession}
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontSize: '13px',
+                  padding: '10px 16px',
+                  border: `2px solid var(--tape)`,
+                  borderRadius: '4px',
+                  background: 'var(--tape)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontWeight: 'bold'
+                }}
+              >
+                import session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="total-card">
         <div className="total-row">
@@ -1097,4 +1279,3 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
-</body></html>

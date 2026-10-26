@@ -694,6 +694,28 @@ function App() {
     setSessions(prev => prev.filter(s => s.id !== id));
   };
 
+  const resetAll = () => {
+    if (!window.confirm('Reset the whole page? This clears the project info, all sessions, and the invoice number back to 1011. Export history is kept.')) return;
+    const fresh = [
+      { id: 1, label: 'Shoot', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50, runningSince: null },
+      { id: 2, label: 'Edit — session 1', start: '', end: '', date: todayStr(), notes: '', onBreak: false, breakStart: null, breakMs: 0, rate: 50, runningSince: null },
+    ];
+    setProjectTitle('');
+    setProjectDate(todayStr());
+    setBilledTo('');
+    setInvoiceNumber(1011);
+    setDefaultRate(50);
+    setSessions(fresh);
+    setNextId(3);
+    setImportText('');
+    setShowImport(false);
+    try {
+      ['vrlProjectTitle', 'vrlProjectDate', 'vrlBilledTo', 'vrlInvoiceNumber', 'vrlDefaultRate', 'vrlSessions']
+        .forEach(k => localStorage.removeItem(k));
+      localStorage.setItem('shootTrackerNextInvoiceNumber', '1011');
+    } catch (e) {}
+  };
+
   const importSession = () => {
     // Reads the Copy Summary format, one line per session:
     // Label (YYYY-MM-DD): 7:30 AM–1:45 PM → 6 hr @ $15/hr = $90
@@ -1047,9 +1069,12 @@ function App() {
               value={s.label}
               onChange={e => updateSession(s.id, 'label', e.target.value)}
             />
-            {sessions.length > 1 && (
-              <button className="remove-btn" onClick={() => removeSession(s.id)}>remove</button>
-            )}
+            <button
+              className="remove-btn"
+              onClick={() => {
+                if (window.confirm(`Remove "${s.label || 'this session'}"?`)) removeSession(s.id);
+              }}
+            >remove</button>
           </div>
           <div className="session-date-row">
             <div className="session-date-field">
@@ -1266,6 +1291,24 @@ function App() {
           clear history
         </button>
       )}
+
+      <button
+        onClick={resetAll}
+        style={{
+          width: '100%',
+          marginTop: '24px',
+          fontFamily: 'var(--mono)',
+          fontSize: '13px',
+          padding: '12px',
+          border: '2px solid #a3392f',
+          borderRadius: '4px',
+          background: 'none',
+          color: '#a3392f',
+          cursor: 'pointer'
+        }}
+      >
+        reset page
+      </button>
 
       <div className="rounding-note">
         Rounding rule: 0–15 min down · 16–45 min → nearest half hour · 46–60 min up.<br/>

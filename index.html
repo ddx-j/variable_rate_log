@@ -695,50 +695,59 @@ function App() {
   };
 
   const importSession = () => {
-    // Parse lines like:
-    // Label: Session Name
-    // Date: 2026-10-15
-    // Start: 14:30
-    // End: 17:45
-    // Rate: 50
-    // Notes: Optional notes here
+    // Reads the Copy Summary format, one line per session:
+    // Label (YYYY-MM-DD): 7:30 AM–1:45 PM → 6 hr @ $15/hr = $90
+    //    note: optional note
+    // Header, "Total:" and other lines are ignored.
     if (!importText.trim()) return;
-    
-    const newSession = {
-      id: nextId,
-      label: 'Imported Session',
-      start: '',
-      end: '',
-      date: todayStr(),
-      notes: '',
-      onBreak: false,
-      breakStart: null,
-      breakMs: 0,
-      rate: defaultRate,
-      runningSince: null
+
+    const to24 = (t, ap) => {
+      let [h, m] = t.split(':').map(Number);
+      const isPM = ap.toUpperCase() === 'PM';
+      if (isPM && h !== 12) h += 12;
+      if (!isPM && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     };
 
-    const lines = importText.split('\n');
-    lines.forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('Label:') || trimmed.startsWith('Session:')) {
-        newSession.label = trimmed.split(':').slice(1).join(':').trim();
-      } else if (trimmed.startsWith('Date:')) {
-        newSession.date = trimmed.split(':').slice(1).join(':').trim();
-      } else if (trimmed.startsWith('Start:')) {
-        newSession.start = trimmed.split(':').slice(1).join(':').trim();
-      } else if (trimmed.startsWith('End:')) {
-        newSession.end = trimmed.split(':').slice(1).join(':').trim();
-      } else if (trimmed.startsWith('Rate:') || trimmed.startsWith('$/hr:') || trimmed.startsWith('Rate /hr:')) {
-        const rateStr = trimmed.split(':').slice(1).join(':').trim().replace('$', '').replace('/hr', '').trim();
-        newSession.rate = Number(rateStr) || defaultRate;
-      } else if (trimmed.startsWith('Notes:')) {
-        newSession.notes = trimmed.split(':').slice(1).join(':').trim();
+    const entryRe = /^(.+?)\s*\((\d{4}-\d{2}-\d{2})\):\s*(\d{1,2}:\d{2})\s*(AM|PM)\s*[–-]\s*(\d{1,2}:\d{2})\s*(AM|PM)(?:.*?@\s*\$?([\d.]+))?/i;
+    const noteRe = /^note:\s*(.*)$/i;
+
+    const parsed = [];
+    importText.split('\n').forEach(raw => {
+      const line = raw.trim();
+      if (!line) return;
+      const noteMatch = line.match(noteRe);
+      if (noteMatch) {
+        if (parsed.length) parsed[parsed.length - 1].notes = noteMatch[1].trim();
+        return;
+      }
+      const m = line.match(entryRe);
+      if (m) {
+        parsed.push({
+          label: m[1].trim(),
+          date: m[2],
+          start: to24(m[3], m[4]),
+          end: to24(m[5], m[6]),
+          rate: m[7] ? Number(m[7]) : defaultRate,
+          notes: ''
+        });
       }
     });
 
-    setSessions(prev => [...prev, newSession]);
-    setNextId(n => n + 1);
+    if (!parsed.length) return;
+
+    let id = nextId;
+    const newSessions = parsed.map(s => ({
+      id: id++,
+      ...s,
+      onBreak: false,
+      breakStart: null,
+      breakMs: 0,
+      runningSince: null
+    }));
+
+    setSessions(prev => [...prev, ...newSessions]);
+    setNextId(id);
     setImportText('');
     setShowImport(false);
   };
@@ -1140,13 +1149,10 @@ function App() {
           }}>
             <h2 style={{ margin: '0 0 12px', fontFamily: 'var(--mono)', fontSize: '16px', color: 'var(--ink)' }}>Import Time Card</h2>
             <p style={{ margin: '0 0 12px', fontFamily: 'var(--mono)', fontSize: '12px', color: '#6b655a' }}>
-              Paste session data below. Format:<br/>
-              Label: Shoot Footage<br/>
-              Date: 2026-10-15<br/>
-              Start: 14:30<br/>
-              End: 17:45<br/>
-              Rate: 50<br/>
-              Notes: Optional notes
+              Paste lines from Copy Summary. Format:<br/>
+              Label (2026-10-20): 7:30 AM–1:45 PM → 6 hr @ $15/hr = $90<br/>
+              &nbsp;&nbsp;&nbsp;note: optional note<br/>
+              Multiple sessions can be pasted at once.
             </p>
             <textarea
               value={importText}
